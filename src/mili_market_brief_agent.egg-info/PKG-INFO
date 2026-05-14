@@ -1,0 +1,61 @@
+Metadata-Version: 2.4
+Name: mili_market_brief_agent
+Version: 0.1.0
+Summary: Personalized market brief agent for Mili demo
+Author: Kritika Gumber
+Project-URL: Homepage, https://getmili.ai/
+Keywords: market,brief,agent,streamlit
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Operating System :: MacOS :: MacOS X
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: pytest
+Requires-Dist: streamlit
+
+# Mili Market Brief Agent
+
+A Python starter project for generating and demoing a personalized market brief agent.
+
+## Project structure
+
+- `src/mili_market_brief_agent/` — package source files
+- `tests/` — unit tests
+- `src/mili_market_brief_agent/streamlit_app.py` — Streamlit UI for the personalized market brief agent
+
+## Getting started
+
+1. Create a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Run the Streamlit demo:
+
+```bash
+streamlit run src/mili_market_brief_agent/streamlit_app.py
+```
+
+4. Run tests:
+
+```bash
+pytest
+```
+
+## What this demo includes
+
+- `tools.py` — parses holdings, fetches mock market data, and builds a personalized summary
+- `agent.py` — coordinates multiple tool calls and produces advisor-ready output plus structured JSON
+- `streamlit_app.py` — UI for uploading/pasting client holdings, generating the brief, and inspecting tool reasoning
+
+## Notes
+
+The current implementation uses mocked market data and a local reasoning pipeline so it can run without a live market API. You can extend it by replacing the mock tools with real market and news feeds, or by integrating OpenAI / Mili agent SDK calls.

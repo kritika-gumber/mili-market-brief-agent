@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mili_market_brief_agent"
+version = "0.1.0"
+description = "Personalized market brief agent for Mili demo"
+authors = [
+  {name = "Kritika Gumber"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+keywords = ["market", "brief", "agent", "streamlit"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: MacOS :: MacOS X"
+]
+
+dependencies = ["pytest", "streamlit", "openai", "requests"]
+
+[project.urls]
+"Homepage" = "https://getmili.ai/"
+
+[tool.setuptools]
+packages = {find = {where = ["src"]}}
