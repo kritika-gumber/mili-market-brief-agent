@@ -2,7 +2,10 @@ import io
 import os
 import sys
 import urllib.parse
+from typing import Any, Dict
+
 import streamlit as st
+from openpyxl import Workbook
 
 OPENAI_KEY_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
 
@@ -18,6 +21,58 @@ except ImportError:
 
 
 # Synthetic client profiles for testing
+def build_excel_bytes(output: Dict[str, Any], client_name: str, risk_profile: str) -> bytes:
+    wb = Workbook()
+    holdings_sheet = wb.active
+    holdings_sheet.title = "Holdings"
+    holdings_sheet.append(["Client Name", "Risk Profile", "Ticker", "Quantity", "Market Value", "Sector"])
+    for holding in output.get("holdings", []):
+        holdings_sheet.append([
+            client_name,
+            risk_profile,
+            holding.get("ticker", ""),
+            holding.get("quantity", 0),
+            holding.get("market_value", 0),
+            holding.get("sector", ""),
+        ])
+
+    summary_sheet = wb.create_sheet(title="Summary")
+    summary_sheet.append(["Client Name", client_name or ""])
+    summary_sheet.append(["Risk Profile", risk_profile or ""])
+    summary_sheet.append(["Advisor Summary", ""])
+    for line in output.get("advisor_summary", "").splitlines():
+        summary_sheet.append([line])
+    summary_sheet.append([])
+    summary_sheet.append(["Provider Response", output.get("provider_response", "")])
+    if output.get("openai_key_error"):
+        summary_sheet.append(["OpenAI Key Error", output["openai_key_error"]])
+
+    workflow_sheet = wb.create_sheet(title="Workflow")
+    workflow_sheet.append(["Tool", "Description", "Result Count", "Sectors", "Scheduled"])
+    for step in output.get("agent_steps", []):
+        workflow_sheet.append([
+            step.get("tool", ""),
+            step.get("description", ""),
+            step.get("result_count", ""),
+            ", ".join(step.get("sectors", [])) if step.get("sectors") else "",
+            step.get("scheduled", ""),
+        ])
+
+    market_sheet = wb.create_sheet(title="Market Data")
+    market_sheet.append(["Top Movers"])
+    for mover in output.get("market_data", {}).get("top_movers", []):
+        market_sheet.append([f"{mover.get('ticker', '')}: {mover.get('move', '')} ({mover.get('reason', '')})"])
+    market_sheet.append([])
+    market_sheet.append(["Headlines"])
+    for headline in output.get("market_data", {}).get("headlines", []):
+        market_sheet.append([headline])
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer.read()
+
+
 SAMPLE_CLIENTS = {
     "Margaret Chen (Conservative, Retired)": {
         "risk_profile": "Conservative",
@@ -40,6 +95,12 @@ SAMPLE_CLIENTS = {
 
 def main() -> None:
     st.set_page_config(page_title="Mili Market Brief Agent", layout="wide")
+
+    # persist last generated output so downloads / reruns keep the summary visible
+    if "last_output" not in st.session_state:
+        st.session_state["last_output"] = None
+        st.session_state["last_client"] = ""
+        st.session_state["last_profile"] = ""
 
     st.markdown(
         """
@@ -122,16 +183,44 @@ def main() -> None:
             schedule=schedule,
         )
 
-        st.header("Advisor-ready Summary")
-        st.markdown("```")
-        st.text(output["advisor_summary"])
-        st.markdown("```")
+        # persist the latest generated report so downloads and reruns keep the view
+        st.session_state["last_output"] = output
+        st.session_state["last_client"] = client_name
+        st.session_state["last_profile"] = risk_profile
+
+    # Display the last generated report (if any)
+    display_output = st.session_state.get("last_output")
+    if display_output:
+        if display_output.get("openai_key_error"):
+            st.warning(
+                "OpenAI key validation failed, so the app is using the local summary workflow instead. "
+                f"Details: {display_output['openai_key_error']}"
+            )
+
+        # Summary container with download button aligned top-right
+        with st.container():
+            col_left, col_right = st.columns([8, 1])
+            col_left.header("Advisor-ready Summary")
+            # Show download only when a summary exists
+            if display_output.get("advisor_summary"):
+                excel_bytes = build_excel_bytes(display_output, st.session_state.get("last_client", ""), st.session_state.get("last_profile", ""))
+                col_right.download_button(
+                    label="Download",
+                    data=excel_bytes,
+                    file_name=f"{(st.session_state.get('last_client') or 'client').replace(' ', '_')}_market_brief.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"download_{st.session_state.get('last_client')}",
+                )
+
+            col_left.markdown("```")
+            col_left.text(display_output.get("advisor_summary", ""))
+            col_left.markdown("```")
 
         with st.expander("Show structured agent output and tool reasoning"):
-            st.json(output)
+            st.json(display_output)
 
         with st.expander("Agent workflow steps"):
-            for step in output["agent_steps"]:
+            for step in display_output.get("agent_steps", []):
                 st.write(step)
 
 

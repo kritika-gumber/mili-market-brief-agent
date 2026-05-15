@@ -18,7 +18,7 @@ classifiers = [
   "Operating System :: MacOS :: MacOS X"
 ]
 
-dependencies = ["pytest", "streamlit", "openai", "requests"]
+dependencies = ["pytest", "streamlit", "openai", "requests", "openpyxl"]
 
 [project.urls]
 "Homepage" = "https://getmili.ai/"

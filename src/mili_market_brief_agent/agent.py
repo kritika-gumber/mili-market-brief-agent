@@ -195,8 +195,100 @@ def _openai_enabled() -> bool:
     return _ai_provider() == "openai" and OpenAI is not None and bool(_ai_api_key())
 
 
+def _openai_key_is_placeholder(api_key: str) -> bool:
+    normalized = api_key.strip().lower()
+    return (
+        not normalized
+        or normalized.startswith("your_")
+        or "your_api_key" in normalized
+    )
+
+
+def _validate_openai_api_key() -> Optional[str]:
+    api_key = _ai_api_key()
+    if not api_key:
+        return "No OpenAI API key was found."
+    if _openai_key_is_placeholder(api_key):
+        return "OpenAI API key appears to be a placeholder or invalid."
+
+    client = OpenAI(api_key=api_key)
+    try:
+        response = client.responses.create(
+            model=_ai_model(),
+            input="OpenAI key validation request. Reply with OK.",
+            max_output_tokens=16,
+            temperature=0.0,
+        )
+        response_data = response.to_dict()
+        if not response_data.get("output_text") and not response_data.get("output"):
+            return "OpenAI validation request did not return usable output."
+    except Exception as exc:
+        return str(exc)
+    return None
+
+
 def _huggingface_enabled() -> bool:
     return _ai_provider() == "huggingface" and bool(_hf_api_token())
+
+
+def _run_local_workflow(
+    client_name: str,
+    holdings_text: str,
+    uploaded_file: Optional[io.StringIO],
+    risk_profile: str,
+    schedule: bool,
+) -> Dict[str, object]:
+    if uploaded_file is not None:
+        uploaded_file.seek(0)
+        holdings = parse_holdings_csv(uploaded_file)
+        steps = [
+            {
+                "tool": "Client Holdings Parser",
+                "description": "Parsed client holdings from uploaded CSV file.",
+                "result_count": len(holdings),
+            }
+        ]
+    else:
+        holdings = parse_holdings_text(holdings_text)
+        steps = [
+            {
+                "tool": "Client Holdings Parser",
+                "description": "Parsed client holdings from pasted text.",
+                "result_count": len(holdings),
+            }
+        ]
+
+    sectors = [holding.sector for holding in holdings if holding.sector]
+    market_data = fetch_market_data(sectors)
+    steps.append(
+        {
+            "tool": "Market Data and News Fetcher",
+            "description": "Collected market movers, headlines, and sector coverage relevant to the client holdings.",
+            "sectors": sectors,
+        }
+    )
+
+    summary = build_personalized_summary(client_name, holdings, market_data, risk_profile)
+    if schedule:
+        steps.append(
+            {
+                "tool": "Scheduler",
+                "description": "Marked the brief for scheduled delivery in the morning digest.",
+                "scheduled": True,
+            }
+        )
+    else:
+        steps.append(
+            {
+                "tool": "Scheduler",
+                "description": "Generated the brief on demand.",
+                "scheduled": False,
+            }
+        )
+
+    output = build_json_output(holdings, market_data, steps)
+    output["advisor_summary"] = summary
+    return output
 
 
 def _run_openai_agent(
@@ -572,11 +664,19 @@ def run_personalized_market_brief_agent(
 ) -> Dict[str, object]:
     """Execute the personalized market brief agent workflow."""
     if _ai_provider() == "openai" and _openai_enabled():
+        validation_error = _validate_openai_api_key()
+        if validation_error:
+            print(f"[Mili Agent] OpenAI validation failed: {validation_error}; falling back to local workflow")
+            output = _run_local_workflow(client_name, holdings_text, uploaded_file, risk_profile, schedule)
+            output["openai_key_error"] = validation_error
+            return output
         try:
             return _run_openai_agent(client_name, holdings_text, uploaded_file, risk_profile, schedule)
-        except Exception:
+        except Exception as exc:
             print("[Mili Agent] OpenAI flow failed; falling back to local workflow")
-            pass
+            output = _run_local_workflow(client_name, holdings_text, uploaded_file, risk_profile, schedule)
+            output["openai_key_error"] = str(exc)
+            return output
     elif _ai_provider() == "gemini" and _ai_api_key():
         try:
             return _run_gemini_agent(client_name, holdings_text, uploaded_file, risk_profile, schedule)
@@ -595,45 +695,4 @@ def run_personalized_market_brief_agent(
         else:
             print("[Mili Agent] AI API key not found; using local fallback workflow")
 
-    steps = []
-    if uploaded_file is not None:
-        uploaded_file.seek(0)
-        holdings = parse_holdings_csv(uploaded_file)
-        steps.append({
-            "tool": "Client Holdings Parser",
-            "description": "Parsed client holdings from uploaded CSV file.",
-            "result_count": len(holdings),
-        })
-    else:
-        holdings = parse_holdings_text(holdings_text)
-        steps.append({
-            "tool": "Client Holdings Parser",
-            "description": "Parsed client holdings from pasted text.",
-            "result_count": len(holdings),
-        })
-
-    sectors = [holding.sector for holding in holdings if holding.sector]
-    market_data = fetch_market_data(sectors)
-    steps.append({
-        "tool": "Market Data and News Fetcher",
-        "description": "Collected market movers, headlines, and sector coverage relevant to the client holdings.",
-        "sectors": sectors,
-    })
-
-    summary = build_personalized_summary(client_name, holdings, market_data, risk_profile)
-    if schedule:
-        steps.append({
-            "tool": "Scheduler",
-            "description": "Marked the brief for scheduled delivery in the morning digest.",
-            "scheduled": True,
-        })
-    else:
-        steps.append({
-            "tool": "Scheduler",
-            "description": "Generated the brief on demand.",
-            "scheduled": False,
-        })
-
-    output = build_json_output(holdings, market_data, steps)
-    output["advisor_summary"] = summary
-    return output
+    return _run_local_workflow(client_name, holdings_text, uploaded_file, risk_profile, schedule)

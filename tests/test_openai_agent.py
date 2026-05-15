@@ -16,6 +16,9 @@ class DummyResponse:
 
 class DummyResponses:
     def create(self, **kwargs):
+        input_text = kwargs.get("input", "")
+        if input_text.startswith("OpenAI key validation request"):
+            return DummyResponse({"output": [{"type": "output_text", "text": "OK"}]})
         return DummyResponse(
             {
                 "output": [
@@ -144,3 +147,30 @@ def test_openai_disabled_without_api_key(monkeypatch):
     assert output["advisor_summary"]
     assert output["holdings"][0]["ticker"] == "AAPL"
     assert "openai_response" not in output
+
+
+def test_openai_validation_falls_back(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "invalid-key")
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+
+    class BadResponses:
+        def create(self, **kwargs):
+            raise RuntimeError("Invalid API key")
+
+    class BadOpenAIClient:
+        def __init__(self, api_key=None, **kwargs):
+            self.responses = BadResponses()
+
+    monkeypatch.setattr(agent, "OpenAI", BadOpenAIClient)
+
+    output = agent.run_personalized_market_brief_agent(
+        client_name="OpenAI Client",
+        holdings_text="AAPL, 10, 1500, Technology",
+        uploaded_file=None,
+        risk_profile="Moderate",
+        schedule=False,
+    )
+
+    assert output["advisor_summary"]
+    assert output["openai_key_error"] == "Invalid API key"
+    assert output["holdings"][0]["ticker"] == "AAPL"

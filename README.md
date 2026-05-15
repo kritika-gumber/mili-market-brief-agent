@@ -70,7 +70,7 @@ pytest
 
 - `tools.py` — parses holdings, fetches mock market data, and builds a personalized summary
 - `agent.py` — coordinates AI tool calls when `AI_API_KEY` is available, and produces advisor-ready output plus structured JSON
-- `streamlit_app.py` — UI for uploading/pasting client holdings, generating the brief, and inspecting tool reasoning
+- `streamlit_app.py` — UI for uploading/pasting client holdings, generating the brief, inspecting tool reasoning, and downloading the summary as Excel
 
 ## AI provider integration
 
