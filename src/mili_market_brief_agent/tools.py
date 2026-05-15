@@ -90,47 +90,58 @@ def build_personalized_summary(
     market_data: Dict[str, Any],
     risk_profile: str,
 ) -> str:
-    """Construct an advisor-ready personalized market brief."""
+    """Construct an advisor-ready personalized market brief with client-specific insights."""
     if not holdings:
-        return "No client holdings were provided. Please upload or paste holdings data."
+        return "No client holdings were provided. Please upload or paste holdings data to generate a brief."
 
-    primary_sectors = list({holding.sector for holding in holdings if holding.sector and holding.sector != "Unknown"})
-    total_value = sum(holding.market_value for holding in holdings)
+    primary_sectors = list({h.sector for h in holdings if h.sector and h.sector != "Unknown"})
+    total_value = sum(h.market_value for h in holdings)
     top_assets = sorted(holdings, key=lambda h: h.market_value, reverse=True)[:3]
+    top_tickers = ", ".join(a.ticker for a in top_assets)
+    sector_str = ", ".join(primary_sectors) if primary_sectors else "diversified sectors"
+    risk_label = risk_profile.lower()
 
     lines = [
-        f"Personalized Morning Brief for {client_name if client_name else 'your client'}",
-        "---",
-        f"Client profile summary: {risk_profile} risk appetite with ${total_value:,.0f} in flagged holdings.",
+        f"Morning Brief — {client_name or 'Client'}",
+        f"Risk profile: {risk_profile}  |  Portfolio value: ${total_value:,.0f}",
+        "=" * 60,
         "",
-        "What moved today:",
+        "MARKET SNAPSHOT",
     ]
 
     for mover in market_data["top_movers"]:
-        lines.append(f"- {mover['ticker']}: {mover['move']} ({mover['reason']})")
+        lines.append(f"  {mover['ticker']:6s} {mover['move']:>7s}  — {mover['reason']}")
 
-    lines.append("")
-    lines.append("Why it matters to the client:")
-    if primary_sectors:
-        lines.append(f"- The client's largest positions are concentrated in {', '.join(primary_sectors)}.")
-    else:
-        lines.append("- The client's holdings are diversified across multiple sectors.")
+    lines += [
+        "",
+        "WHAT THIS MEANS FOR THE CLIENT",
+        f"  {client_name or 'The client'} holds a {risk_label}-risk portfolio concentrated in {sector_str}.",
+        f"  Largest positions are {top_tickers}, which together represent the bulk of market value exposure.",
+    ]
 
-    if top_assets:
-        lines.append(
-            f"- Top exposures include {', '.join(asset.ticker for asset in top_assets)} representing the largest market value positions."
-        )
+    for headline in market_data.get("headlines", []):
+        lines.append(f"  • {headline}")
 
-    if market_data["headlines"]:
-        lines.append("- Primary headlines to watch:")
-        for headline in market_data["headlines"]:
-            lines.append(f"  - {headline}")
+    # Risk-profile-specific framing
+    if risk_profile == "Conservative":
+        risk_note = "Focus on capital preservation — flag any outsized moves in fixed income or dividend names."
+    elif risk_profile == "Moderate":
+        risk_note = "Monitor sector concentration; consider whether recent volatility warrants any tactical trim."
+    else:  # Growth / Aggressive
+        risk_note = "Growth-oriented positioning may amplify gains and losses — ensure client is aligned on drawdown tolerance."
 
-    lines.append("")
-    lines.append("Advisor talking points:")
-    lines.append("- Confirm whether the client is comfortable with today's sector drivers and any recent performance volatility.")
-    lines.append("- Discuss whether the allocation remains aligned with the client’s time horizon and risk preferences.")
-    lines.append("- Consider whether any rebalancing or risk reduction is needed in high-concentration positions.")
+    lines += [
+        "",
+        "ADVISOR TALKING POINTS",
+        f"  1. {risk_note}",
+        f"  2. Check whether {top_tickers} exposure is still within target weight given today's moves.",
+        f"  3. Ask the client if any upcoming liquidity needs should inform near-term positioning.",
+        "",
+        "Prepared by Mili Market Brief Agent.",
+    ]
+
+    if not any(s for s in primary_sectors if s):
+        lines.append("Note: Sector data was incomplete — review holdings for missing sector tags.")
 
     return "\n".join(lines)
 

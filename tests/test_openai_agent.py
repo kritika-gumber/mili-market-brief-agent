@@ -32,14 +32,14 @@ class DummyResponses:
         )
 
 
-class DummyOpenAIClient:
+class DummyAsyncOpenAIClient:
     def __init__(self, api_key=None, **kwargs):
         self.responses = DummyResponses()
 
 
 def test_openai_branch_parses_holdings_and_falls_back(monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setattr(agent, "OpenAI", DummyOpenAIClient)
+    monkeypatch.setattr(agent, "AsyncOpenAI", DummyAsyncOpenAIClient)
 
     output = agent.run_personalized_market_brief_agent(
         client_name="OpenAI Client",
@@ -75,15 +75,11 @@ def test_openai_disabled_without_api_key(monkeypatch):
 def test_openai_validation_falls_back(monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "invalid-key")
 
-    class BadResponses:
-        def create(self, **kwargs):
+    class BadAsyncOpenAIClient:
+        def __init__(self, api_key=None, **kwargs):
             raise RuntimeError("Invalid API key")
 
-    class BadOpenAIClient:
-        def __init__(self, api_key=None, **kwargs):
-            self.responses = BadResponses()
-
-    monkeypatch.setattr(agent, "OpenAI", BadOpenAIClient)
+    monkeypatch.setattr(agent, "AsyncOpenAI", BadAsyncOpenAIClient)
 
     output = agent.run_personalized_market_brief_agent(
         client_name="OpenAI Client",

@@ -1,10 +1,8 @@
 import io
 import os
 from typing import Any
-from types import SimpleNamespace
-from agents import Agent, Runner, function_tool
+from agents import Agent, Runner, function_tool, AsyncOpenAI
 from agents.models.openai_responses import OpenAIResponsesModel
-from openai import OpenAI
 from pydantic import BaseModel
 
 from .tools import (
@@ -16,61 +14,38 @@ from .tools import (
 )
 
 
-class _OpenAIResponsesSyncClientWrapper:
-    def __init__(self, sync_client: OpenAI) -> None:
-        self._sync_client = sync_client
-        self.responses = self
-
-    async def create(self, **kwargs: Any) -> Any:
-        if isinstance(kwargs.get("input"), list):
-            kwargs["input"] = "\n".join(
-                item.get("content", "")
-                for item in kwargs["input"]
-                if isinstance(item, dict)
-            )
-        response = self._sync_client.responses.create(**kwargs)
-        if not hasattr(response, "usage"):
-            response_data = response.to_dict() if hasattr(response, "to_dict") else {}
-            output = response_data.get("output", [])
-            if isinstance(output, list):
-                normalized_output = []
-                for item in output:
-                    if isinstance(item, dict) and item.get("type") == "function_call":
-                        normalized_output.append(
-                            {
-                                "type": "custom_tool_call",
-                                "call_id": item.get("name", "parse_holdings"),
-                                "name": item.get("name"),
-                                "input": item.get("arguments", ""),
-                                "id": item.get("id"),
-                            }
-                        )
-                    else:
-                        normalized_output.append(item)
-                output = normalized_output
-            return SimpleNamespace(
-                output=output,
-                usage=None,
-                id=response_data.get("id"),
-                _request_id=getattr(response, "_request_id", None),
-            )
-        return response
-
-    async def close(self) -> None:
-        return None
-
-
-def _build_openai_agent(sync_client: OpenAI) -> Agent:
-    async_client = _OpenAIResponsesSyncClientWrapper(sync_client)
-    model = OpenAIResponsesModel(os.getenv("AI_MODEL", "gpt-4.1-mini"), openai_client=async_client)
+def _build_openai_agent(api_key: str) -> Agent:
+    client = AsyncOpenAI(api_key=api_key)
+    model = OpenAIResponsesModel(os.getenv("AI_MODEL", "gpt-4.1-mini"), openai_client=client)
     return Agent(
         name="Mili Market Brief Agent",
         instructions=(
-            "You are a wealth advisor assistant. "
-            "Your job is to build a concise and professional personalized market brief. "
-            "Use parse_holdings to extract structured holdings from the raw input, then use get_market_data to fetch market context for the sectors in the holdings. "
-            "Finally produce a MarketBrief object with advisor_summary, talking_points, and sectors_in_focus. "
-            "If the client requested a morning delivery schedule, mention it briefly in the summary."
+            "You are a senior wealth advisor assistant at Mili, helping financial advisors prepare "
+            "for their morning client calls.\n\n"
+            
+            "WORKFLOW — follow these steps in order, every time:\n"
+            "1. Call parse_holdings with the raw holdings text to extract structured positions.\n"
+            "2. From the parsed holdings, identify the distinct sectors present.\n"
+            "3. Call get_market_data with those sectors to fetch today's market context.\n"
+            "4. Produce the final MarketBrief output.\n\n"
+            
+            "OUTPUT REQUIREMENTS:\n"
+            "- advisor_summary: 150–250 words. Written for the advisor to read aloud or paste into "
+            "a client email. Structure it as: (a) what moved in the market today, (b) why it matters "
+            "specifically to this client given their holdings and risk profile, (c) one clear action "
+            "item or question the advisor should raise. Mention scheduled delivery only if schedule=True.\n"
+            "- talking_points: 3–4 punchy bullet points the advisor can reference during a call. "
+            "Each should be specific to this client's positions — not generic market commentary.\n"
+            "- sectors_in_focus: list only sectors that actually appear in the client's holdings.\n\n"
+            
+            "TONE: Confident, concise, jargon-aware but not jargon-heavy. Written for a professional "
+            "advisor, not the end client. Avoid filler phrases like 'it is worth noting' or 'as always'.\n\n"
+            
+            "CONSTRAINTS:\n"
+            "- Never invent tickers or prices not present in the holdings or market data.\n"
+            "- If holdings are empty or unparseable, set advisor_summary to a clear error message "
+            "and return empty lists for the other fields.\n"
+            "- Always call both tools before producing output. Do not skip get_market_data."
         ),
         tools=[parse_client_holdings, get_market_data],
         output_type=MarketBrief,
@@ -80,7 +55,12 @@ def _build_openai_agent(sync_client: OpenAI) -> Agent:
 
 @function_tool(
     name_override="parse_holdings",
-    description_override="Parse a client's holdings into structured ticker, quantity, market value, and sector records.",
+    description_override=(
+        "Parse raw client holdings text or CSV into a structured list of positions. "
+        "Each position includes ticker symbol, quantity, market value in USD, and sector. "
+        "Call this first, before get_market_data. Pass the full raw holdings string as raw_holdings. "
+        "Use source='csv' only if the input is comma-separated with headers; otherwise use source='text'."
+    ),
 )
 def parse_client_holdings(raw_holdings: str, source: str = "text") -> list[dict]:
     if source == "csv":
@@ -93,7 +73,12 @@ def parse_client_holdings(raw_holdings: str, source: str = "text") -> list[dict]
 
 @function_tool(
     name_override="get_market_data",
-    description_override="Fetch market movers, headlines, and sector coverage for the supplied sectors.",
+    description_override=(
+        "Fetch today's top market movers, relevant news headlines, and sector-level commentary "
+        "for the sectors present in the client's portfolio. "
+        "Call this after parse_holdings, passing the list of sector names extracted from the holdings. "
+        "Returns top movers, headlines, and sector coverage relevant to the client."
+    ),
 )
 def get_market_data(sectors: list[str]) -> dict:
     return fetch_market_data(sectors)
@@ -159,13 +144,6 @@ def _build_agent_steps(
     ]
 
 
-def _validate_openai_api_key(openai_client: OpenAI) -> None:
-    openai_client.responses.create(
-        model=os.getenv("AI_MODEL", "gpt-4.1-mini"),
-        input="OpenAI key validation request",
-        max_output_tokens=16,
-    )
-
 
 def _run_local_workflow(
     client_name: str,
@@ -205,26 +183,23 @@ def run_personalized_market_brief_agent(
     if not openai_api_key:
         return _run_local_workflow(client_name, holdings_text, uploaded_file, risk_profile, schedule)
 
-    openai_client = OpenAI(api_key=openai_api_key)
-    try:
-        _validate_openai_api_key(openai_client)
-    except Exception as exc:
-        return _run_local_workflow(
-            client_name,
-            holdings_text,
-            uploaded_file,
-            risk_profile,
-            schedule,
-            extra={"openai_key_error": str(exc), "openai_response": ""},
-        )
+    # Ensure the SDK can also find the key
+    if not os.getenv("OPENAI_API_KEY"):
+        os.environ["OPENAI_API_KEY"] = openai_api_key
 
+    holdings_source = "uploaded CSV" if uploaded_file is not None else "pasted text"
     prompt = (
-        f"Client: {client_name}\nRisk: {risk_profile}\nSchedule: {schedule}\n"
-        f"Holdings:\n{holdings_text}"
+        f"Generate a personalized morning market brief for the following client.\n\n"
+        f"Client name: {client_name}\n"
+        f"Risk profile: {risk_profile}\n"
+        f"Morning delivery scheduled: {'Yes' if schedule else 'No'}\n"
+        f"Holdings source: {holdings_source}\n\n"
+        f"Raw holdings ({holdings_source}):\n{holdings_text}\n\n"
+        f"Follow the workflow: parse holdings → identify sectors → fetch market data → produce MarketBrief."
     )
     try:
-        agent = _build_openai_agent(openai_client)
-        result = Runner.run_sync(agent, input=prompt, max_turns=20)
+        agent = _build_openai_agent(openai_api_key)
+        result = Runner.run_sync(agent, input=prompt, max_turns=10)
         brief = result.final_output_as(MarketBrief, raise_if_incorrect_type=False)
         if isinstance(brief, MarketBrief):
             advisor_summary = brief.advisor_summary
