@@ -1,5 +1,5 @@
 pytest
 streamlit
 openai
-requests
+openai-agents
 openpyxl

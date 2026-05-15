@@ -23,33 +23,29 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Get your AI provider key:
+3. Get your OpenAI API key:
 
-- For OpenAI: sign in to https://platform.openai.com/ and create a new key under "API Keys"
-- For Gemini: use a Google Cloud API key with access to the Generative Language API
+- Sign in to https://platform.openai.com/ and create a new key under "API Keys"
 - Copy the key securely
 
-4. Set your AI API key and provider for tool-enabled reasoning:
+4. Set your OpenAI key for tool-enabled reasoning:
 
 macOS / Linux:
 
 ```bash
 export AI_API_KEY="your_api_key"
-export AI_PROVIDER="openai"  # or gemini
 ```
 
 Windows PowerShell:
 
 ```powershell
 $env:AI_API_KEY = "your_api_key"
-$env:AI_PROVIDER = "openai"  # or gemini
 ```
 
 Windows CMD:
 
 ```cmd
 set AI_API_KEY=your_api_key
-set AI_PROVIDER=openai
 ```
 
 > Do not commit this key to version control or expose it in shared files.
@@ -72,28 +68,17 @@ pytest
 - `agent.py` — coordinates AI tool calls when `AI_API_KEY` is available, and produces advisor-ready output plus structured JSON
 - `streamlit_app.py` — UI for uploading/pasting client holdings, generating the brief, inspecting tool reasoning, and downloading the summary as Excel
 
-## AI provider integration
+## OpenAI integration
 
 This demo supports:
 
-- `AI_PROVIDER=openai` — OpenAI Responses API path with custom function-style tool calls
-- `AI_PROVIDER=gemini` — Gemini provider support using Google Generative Language HTTP API
-- `AI_PROVIDER=huggingface` — Hugging Face remote inference API via `requests`
+- OpenAI Agents SDK using tool-based reasoning and function-style tool calls
 
-Set `AI_API_KEY` to your provider key and `AI_PROVIDER` to the provider name. Legacy `OPENAI_API_KEY` is still accepted for OpenAI.
-
-For Hugging Face, you can also set `HUGGINGFACE_API_TOKEN` if you want to keep provider keys separate. Do not use placeholder keys like `your_huggingface_api_token`.
-
-For Gemini, your API key must come from a Google Cloud project with the Generative Language API enabled. Do not use placeholder keys like `your_google_cloud_api_key`; those will fail with HTTP 400 or authorization errors.
+Set `AI_API_KEY` to your OpenAI key. Legacy `OPENAI_API_KEY` is still accepted.
 
 You can optionally set model env vars:
-- `AI_MODEL` for OpenAI and Gemini
-- `HUGGINGFACE_MODEL` for Hugging Face (or `AI_MODEL` as fallback)
-- `openai` default: `gpt-4.1-mini`
-- `gemini` default: `text-bison-001`
-- `huggingface` default: `gpt2`
-
-If `gpt2` does not resolve, use an explicit hosted model name such as `EleutherAI/gpt-neo-125M` or `distilgpt2`.
+- `AI_MODEL` for OpenAI
+- default: `gpt-4.1-mini`
 
 ## Notes
 

@@ -7,7 +7,7 @@ from typing import Any, Dict
 import streamlit as st
 from openpyxl import Workbook
 
-OPENAI_KEY_PRESENT = bool(os.getenv("OPENAI_API_KEY"))
+OPENAI_KEY_PRESENT = bool(os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY"))
 
 # Ensure the project root is on sys.path when streamlit runs this file as a script.
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
